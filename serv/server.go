@@ -73,6 +73,8 @@ func (s *Server) Start() error {
 			// 断开旧的连接
 			old.Close()
 		}
+		log.Infof("user %s in", user)
+
 		go func(user string, conn net.Conn) {
 			err := s.readloop(user, conn)
 			if err != nil {
