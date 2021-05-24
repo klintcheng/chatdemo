@@ -6,22 +6,15 @@ import (
 	"net"
 	"net/http"
 	"sync"
-	"time"
 
 	"github.com/gobwas/ws"
 	"github.com/sirupsen/logrus"
 )
 
-// ServerOptions ServerOptions
-type ServerOptions struct {
-	loginwait time.Duration //登陆超时
-	readwait  time.Duration //读超时
-}
-
 // Server is a websocket implement of the Server
 type Server struct {
-	once    sync.Once
-	options ServerOptions
+	once sync.Once
+	// options ServerOptions
 	id      string
 	address string
 	sync.RWMutex
@@ -39,10 +32,6 @@ func newServer(id, address string) *Server {
 		id:      id,
 		address: address,
 		users:   make(map[string]net.Conn, 100),
-		options: ServerOptions{
-			loginwait: time.Second * 10,
-			readwait:  time.Minute * 3,
-		},
 	}
 }
 
@@ -58,13 +47,13 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		conn, _, _, err := ws.UpgradeHTTP(r, w)
 		if err != nil {
-			resp(w, http.StatusBadRequest, err.Error())
+			conn.Close()
 			return
 		}
 		// 读取userId
 		user := r.URL.Query().Get("user")
 		if user == "" {
-			resp(w, http.StatusBadRequest, "user is required")
+			conn.Close()
 			return
 		}
 		// 添加到会话管理中
@@ -120,21 +109,6 @@ func (s *Server) Shutdown() {
 	})
 }
 
-// string connID
-// []byte data
-func (s *Server) WriteText(conn net.Conn, data []byte) error {
-	// 创建文本帧数据
-	f := ws.NewTextFrame(data)
-	return ws.WriteFrame(conn, f)
-}
-
-func resp(w http.ResponseWriter, code int, body string) {
-	w.WriteHeader(code)
-	if body != "" {
-		_, _ = w.Write([]byte(body))
-	}
-}
-
 func (s *Server) readloop(user string, conn net.Conn) error {
 	for {
 		frame, err := ws.ReadFrame(conn)
@@ -156,17 +130,23 @@ func (s *Server) readloop(user string, conn net.Conn) error {
 }
 
 // 广播消息
-func (s *Server) handle(user string, recv string) {
+func (s *Server) handle(user string, message string) {
 	s.RLock()
 	defer s.RUnlock()
-	broadcast := fmt.Sprintf("%s -- FROM %s", recv, user)
+	broadcast := fmt.Sprintf("%s -- FROM %s", message, user)
 	for u, conn := range s.users {
 		if u == user { // 不发给自己
 			continue
 		}
-		err := s.WriteText(conn, []byte(broadcast))
+		err := s.writeText(conn, broadcast)
 		if err != nil {
 			logrus.Errorf("write to %s failed, error: %v", user, err)
 		}
 	}
+}
+
+func (s *Server) writeText(conn net.Conn, message string) error {
+	// 创建文本帧数据
+	f := ws.NewTextFrame([]byte(message))
+	return ws.WriteFrame(conn, f)
 }
