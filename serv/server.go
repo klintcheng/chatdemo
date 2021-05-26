@@ -140,6 +140,7 @@ func (s *Server) readloop(user string, conn net.Conn) error {
 
 // 广播消息
 func (s *Server) handle(user string, message string) {
+	logrus.Infof("recv message %s from %s", message, user)
 	s.RLock()
 	defer s.RUnlock()
 	broadcast := fmt.Sprintf("%s -- FROM %s", message, user)
