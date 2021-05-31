@@ -39,12 +39,13 @@ func NewCmd(ctx context.Context) *cobra.Command {
 func run(ctx context.Context, opts *StartOptions) error {
 	url := fmt.Sprintf("%s?user=%s", opts.address, opts.user)
 	logrus.Info("connect to ", url)
-
+	//连接到服务，并返回hander对象
 	han, err := connect(url)
 	if err != nil {
 		return err
 	}
 	go func() {
+		//读取消息并显示
 		for msg := range han.recv {
 			logrus.Info("Receive message:", string(msg))
 		}
@@ -54,6 +55,7 @@ func run(ctx context.Context, opts *StartOptions) error {
 	for {
 		select {
 		case <-tk.C:
+			//每6秒发送一个消息
 			err := han.sendText("hello")
 			if err != nil {
 				logrus.Error(err)
@@ -115,9 +117,6 @@ func (h *handler) readloop(conn net.Conn) error {
 		frame, err := ws.ReadFrame(conn)
 		if err != nil {
 			return err
-		}
-		if frame.Header.OpCode == ws.OpPong {
-			continue
 		}
 		if frame.Header.OpCode == ws.OpClose {
 			return errors.New("remote side close the channel")
