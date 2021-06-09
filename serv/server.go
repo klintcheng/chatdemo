@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gobwas/ws"
+	"github.com/gobwas/ws/wsutil"
 	"github.com/sirupsen/logrus"
 )
 
@@ -80,7 +81,7 @@ func (s *Server) Start() error {
 		go func(user string, conn net.Conn) {
 			err := s.readloop(user, conn)
 			if err != nil {
-				log.Warn(err)
+				log.Warn("readloop - ", err)
 			}
 			conn.Close()
 			// 删除用户
@@ -119,14 +120,25 @@ func (s *Server) Shutdown() {
 }
 
 func (s *Server) readloop(user string, conn net.Conn) error {
+	readwait := time.Minute * 2
 	for {
+		// 要求：客户端必须在指定时间内发送一条消息过来，可以是ping，也可以是正常数据包
+		_ = conn.SetReadDeadline(time.Now().Add(readwait))
+
 		frame, err := ws.ReadFrame(conn)
 		if err != nil {
 			return err
 		}
+		if frame.Header.OpCode == ws.OpPing {
+			// 返回一个pong消息
+			_ = wsutil.WriteServerMessage(conn, ws.OpPong, nil)
+			logrus.Info("wirte a pong...")
+			continue
+		}
 		if frame.Header.OpCode == ws.OpClose {
 			return errors.New("remote side close the conn")
 		}
+		logrus.Info(frame.Header)
 
 		if frame.Header.Masked {
 			ws.Cipher(frame.Payload, frame.Header.Mask, 0)
@@ -148,6 +160,7 @@ func (s *Server) handle(user string, message string) {
 		if u == user { // 不发给自己
 			continue
 		}
+		logrus.Infof("send to %s : %s", u, broadcast)
 		err := s.writeText(conn, broadcast)
 		if err != nil {
 			logrus.Errorf("write to %s failed, error: %v", user, err)
