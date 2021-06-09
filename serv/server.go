@@ -41,8 +41,8 @@ func newServer(id, address string) *Server {
 		address: address,
 		users:   make(map[string]net.Conn, 100),
 		options: ServerOptions{
-			writewait: time.Second * 3,
-			readwait:  time.Minute * 30,
+			writewait: time.Second * 10,
+			readwait:  time.Minute * 2,
 		},
 	}
 }
@@ -120,10 +120,9 @@ func (s *Server) Shutdown() {
 }
 
 func (s *Server) readloop(user string, conn net.Conn) error {
-	readwait := time.Minute * 2
 	for {
 		// 要求：客户端必须在指定时间内发送一条消息过来，可以是ping，也可以是正常数据包
-		_ = conn.SetReadDeadline(time.Now().Add(readwait))
+		_ = conn.SetReadDeadline(time.Now().Add(s.options.readwait))
 
 		frame, err := ws.ReadFrame(conn)
 		if err != nil {
