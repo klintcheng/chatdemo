@@ -12,9 +12,22 @@ export let sleep = async (second: number): Promise<void> => {
     })
 }
 
-const StatusSuccess = "Success"
-const StatusTimeout = "Timeout"
-const StatusLoginfailed = "LoginFailed"
+export enum State {
+    INIT,
+    CONNECTING,
+    CONNECTED,
+    RECONNECTING,
+    CLOSEING,
+    CLOSED,
+}
+
+export enum Ack {
+    Success = "Success",
+    Timeout = "Timeout",
+    Loginfailed = "LoginFailed",
+    Logined = "Logined",
+}
+
 
 export let doLogin = async (url: string): Promise<{ status: string, conn: w3cwebsocket }> => {
     const LoginTimeout = 5 // 5 seconds
@@ -24,7 +37,7 @@ export let doLogin = async (url: string): Promise<{ status: string, conn: w3cweb
 
         // 设置一个登陆超时器
         let tr = setTimeout(() => {
-            resolve({ status: StatusTimeout, conn: conn });
+            resolve({ status: Ack.Timeout, conn: conn });
         }, LoginTimeout * 1000);
 
         conn.onopen = () => {
@@ -32,13 +45,13 @@ export let doLogin = async (url: string): Promise<{ status: string, conn: w3cweb
 
             if (conn.readyState === w3cwebsocket.OPEN) {
                 clearTimeout(tr)
-                resolve({ status: StatusSuccess, conn: conn });
+                resolve({ status: Ack.Success, conn: conn });
             }
         }
         conn.onerror = (error: Error) => {
             clearTimeout(tr)
             console.error(error)
-            resolve({ status: StatusLoginfailed, conn: conn });
+            resolve({ status: Ack.Loginfailed, conn: conn });
         }
     })
 }
@@ -48,12 +61,11 @@ const heartbeatInterval = 10 // seconds
 
 export class IMClient {
     wsurl: string
-    state: number
+    state = State.INIT
     private conn: w3cwebsocket | null
     private lastRead: number
     constructor(url: string, user: string) {
         this.wsurl = `${url}?user=${user}`
-        this.state = w3cwebsocket.CLOSED
         this.conn = null
         this.lastRead = Date.now()
 
@@ -61,13 +73,15 @@ export class IMClient {
         this.readDeadlineLoop()
     }
     async login(): Promise<{ status: string }> {
-        if (this.state != w3cwebsocket.CLOSED) {
-            return { status: "StateError" }
+        if (this.state == State.CONNECTED) {
+            return { status: Ack.Logined }
         }
+        this.state = State.CONNECTING
+
         let { status, conn } = await doLogin(this.wsurl)
         console.info("login - ", status)
 
-        if (status !== StatusSuccess) {
+        if (status !== Ack.Success) {
             return { status }
         }
         // overwrite onmessage
@@ -80,7 +94,7 @@ export class IMClient {
                 let len = buf.readInt32BE(2)
                 console.info(`command:${command} len: ${len}`)
                 if (command == 101) {
-                    console.info("received a pong")
+                    console.info("received a pong...")
                 }
             } catch (error) {
                 console.error(evt.data, error)
@@ -88,6 +102,10 @@ export class IMClient {
         }
         conn.onerror = (error) => {
             console.info("websocket error: ", error)
+            if (this.state == State.CLOSEING) {
+                this.onclose("normally")
+                return
+            }
             this.errorHandler(error)
         }
         conn.onclose = (e: ICloseEvent) => {
@@ -95,16 +113,20 @@ export class IMClient {
             this.errorHandler(new Error(e.reason))
         }
         this.conn = conn
-        this.state = w3cwebsocket.OPEN
+        this.state = State.CONNECTED
         return { status }
     }
     private heartbeatLoop() {
         console.debug("heartbeatLoop start")
 
         let loop = () => {
-            if (this.state == w3cwebsocket.OPEN) {
-                console.log("send ping")
+            if (this.state == State.CONNECTED) {
+                console.log("send ping...")
                 this.send(Ping)
+            }
+            if (this.state == State.CLOSED) {
+                console.debug("heartbeatLoop exited")
+                return
             }
             setTimeout(loop, heartbeatInterval * 1000)
         }
@@ -113,24 +135,34 @@ export class IMClient {
     private readDeadlineLoop() {
         console.debug("deadlineLoop start")
         let loop = () => {
-            if (this.state == w3cwebsocket.OPEN) {
+            if (this.state == State.CONNECTED) {
                 if ((Date.now() - this.lastRead) > 3 * heartbeatInterval * 1000) {
                     // read timeout
                     this.errorHandler(new Error("read timeout"))
                 }
             }
+            if (this.state == State.CLOSED) {
+                console.debug("deadlineLoop exited")
+                return
+            }
             setTimeout(loop, 1000)
         }
         loop.call(this)
     }
+    private onclose(reason: string) {
+        console.info("connection closed " + reason)
+        this.state = State.CLOSED
+        // 通知上层应用，
+    }
     private async errorHandler(error: Error) {
         // 检查是否正常关闭
-        if (this.state == w3cwebsocket.CLOSED || this.state == w3cwebsocket.CLOSING) {
+        if (this.state == State.CLOSED || this.state == State.CLOSEING) {
             return
         }
+        this.state = State.RECONNECTING
         console.log(error)
         // 重连10次
-        for (let index = 0; index < 10; index++) {
+        for (let index = 0; index < 5; index++) {
             try {
                 console.info("try to relogin")
                 let { status } = await this.login()
@@ -142,9 +174,7 @@ export class IMClient {
             }
             await sleep(3)
         }
-        this.state == w3cwebsocket.CLOSED
-        this.conn = null
-        console.warn("程序中止")
+        this.onclose("reconnect timeout")
     }
     private send(data: Buffer | Uint8Array): boolean {
         try {
