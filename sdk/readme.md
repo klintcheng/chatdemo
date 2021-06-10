@@ -1,8 +1,9 @@
+# ts demo
 
 ## initialize
 
-```cmd
-$ tsc --init
-message TS6071: Successfully created a tsconfig.json file.
-```
+> init i
 
+## run
+
+> ts-node index.ts
