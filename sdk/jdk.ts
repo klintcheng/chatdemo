@@ -68,9 +68,6 @@ export class IMClient {
         this.wsurl = `${url}?user=${user}`
         this.conn = null
         this.lastRead = Date.now()
-
-        this.heartbeatLoop()
-        this.readDeadlineLoop()
     }
     async login(): Promise<{ status: string }> {
         if (this.state == State.CONNECTED) {
@@ -114,20 +111,24 @@ export class IMClient {
         }
         this.conn = conn
         this.state = State.CONNECTED
+
+        this.heartbeatLoop()
+        this.readDeadlineLoop()
+
         return { status }
     }
     private heartbeatLoop() {
         console.debug("heartbeatLoop start")
 
         let loop = () => {
-            if (this.state == State.CONNECTED) {
-                console.log("send ping...")
-                this.send(Ping)
-            }
-            if (this.state == State.CLOSED) {
+            if (this.state != State.CONNECTED) {
                 console.debug("heartbeatLoop exited")
                 return
             }
+
+            console.log("send ping...")
+            this.send(Ping)
+
             setTimeout(loop, heartbeatInterval * 1000)
         }
         loop.call(this)
@@ -135,15 +136,13 @@ export class IMClient {
     private readDeadlineLoop() {
         console.debug("deadlineLoop start")
         let loop = () => {
-            if (this.state == State.CONNECTED) {
-                if ((Date.now() - this.lastRead) > 3 * heartbeatInterval * 1000) {
-                    // read timeout
-                    this.errorHandler(new Error("read timeout"))
-                }
-            }
-            if (this.state == State.CLOSED) {
+            if (this.state != State.CONNECTED) {
                 console.debug("deadlineLoop exited")
                 return
+            }
+            if ((Date.now() - this.lastRead) > 3 * heartbeatInterval * 1000) {
+                // read timeout
+                this.errorHandler(new Error("read timeout"))
             }
             setTimeout(loop, 1000)
         }
@@ -160,7 +159,7 @@ export class IMClient {
             return
         }
         this.state = State.RECONNECTING
-        console.log(error)
+        console.debug(error)
         // 重连10次
         for (let index = 0; index < 5; index++) {
             try {
