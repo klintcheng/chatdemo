@@ -1,6 +1,7 @@
 package serv
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"net"
@@ -145,6 +146,8 @@ func (s *Server) readloop(user string, conn net.Conn) error {
 		// 接收文本帧内容
 		if frame.Header.OpCode == ws.OpText {
 			go s.handle(user, string(frame.Payload))
+		} else if frame.Header.OpCode == ws.OpBinary {
+			go s.handleBinary(user, frame.Payload)
 		}
 	}
 }
@@ -161,6 +164,32 @@ func (s *Server) handle(user string, message string) {
 		}
 		logrus.Infof("send to %s : %s", u, broadcast)
 		err := s.writeText(conn, broadcast)
+		if err != nil {
+			logrus.Errorf("write to %s failed, error: %v", user, err)
+		}
+	}
+}
+
+// command of message
+const (
+	CommandPing = 100
+	CommandPong = 101
+)
+
+func (s *Server) handleBinary(user string, message []byte) {
+	logrus.Infof("recv message %v from %s", message, user)
+	s.RLock()
+	defer s.RUnlock()
+	// handle ping request
+	i := 0
+	command := binary.BigEndian.Uint16(message[i : i+2])
+	i += 2
+	payloadLen := binary.BigEndian.Uint32(message[i : i+4])
+	logrus.Infof("command: %v payloadLen: %v", command, payloadLen)
+	if command == CommandPing {
+		u := s.users[user]
+		// return pong
+		err := wsutil.WriteServerBinary(u, []byte{0, CommandPong, 0, 0, 0, 0})
 		if err != nil {
 			logrus.Errorf("write to %s failed, error: %v", user, err)
 		}
