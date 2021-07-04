@@ -40,13 +40,13 @@ func run(ctx context.Context, opts *StartOptions) error {
 	url := fmt.Sprintf("%s?user=%s", opts.address, opts.user)
 	logrus.Info("connect to ", url)
 	//连接到服务，并返回hander对象
-	han, err := connect(url)
+	h, err := connect(url)
 	if err != nil {
 		return err
 	}
 	go func() {
 		//读取消息并显示
-		for msg := range han.recv {
+		for msg := range h.recv {
 			logrus.Info("Receive message:", string(msg))
 		}
 	}()
@@ -60,7 +60,7 @@ func run(ctx context.Context, opts *StartOptions) error {
 			// if err != nil {
 			// 	logrus.Error("sendText - ", err)
 			// }
-		case <-han.close:
+		case <-h.close:
 			logrus.Printf("connection closed")
 			return nil
 		}
