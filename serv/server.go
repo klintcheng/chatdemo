@@ -26,7 +26,7 @@ type Server struct {
 	options ServerOptions
 	id      string
 	address string
-	sync.RWMutex
+	sync.Mutex
 	// 会话列表
 	users map[string]net.Conn
 }
@@ -155,8 +155,8 @@ func (s *Server) readloop(user string, conn net.Conn) error {
 // 广播消息
 func (s *Server) handle(user string, message string) {
 	logrus.Infof("recv message %s from %s", message, user)
-	s.RLock()
-	defer s.RUnlock()
+	s.Lock()
+	defer s.Unlock()
 	broadcast := fmt.Sprintf("%s -- FROM %s", message, user)
 	for u, conn := range s.users {
 		if u == user { // 不发给自己
@@ -178,8 +178,8 @@ const (
 
 func (s *Server) handleBinary(user string, message []byte) {
 	logrus.Infof("recv message %v from %s", message, user)
-	s.RLock()
-	defer s.RUnlock()
+	s.Lock()
+	defer s.Unlock()
 	// handle ping request
 	i := 0
 	command := binary.BigEndian.Uint16(message[i : i+2])
