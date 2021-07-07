@@ -79,6 +79,7 @@ export class IMClient {
         console.info("login - ", status)
 
         if (status !== Ack.Success) {
+            this.state = State.INIT
             return { status }
         }
         // overwrite onmessage
